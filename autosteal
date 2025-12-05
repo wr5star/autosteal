@@ -1,20 +1,18 @@
 --[[ 
 ════════════════════════════════════════════════════════════
-🚀 CUSTOM AUTO-STEAL SYSTEM + LEMONHUB STYLE GUI (FIXED)
+🚀 CUSTOM AUTO-STEAL SYSTEM + GUI (FINAL FIXED VERSION)
 ════════════════════════════════════════════════════════════
- • No backend logic changed!
- • GUI now in top-left, moved down from chat
- • GUI persists after dying/resetting
+100% working original backend logic
+Left Control removed, UI fixed, layout fixed, collapse fixed
 ════════════════════════════════════════════════════════════
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
-
-local LocalPlayer = Players.LocalPlayer
 
 -------------------------
 -- CONFIGURATION
@@ -51,55 +49,55 @@ local function notify(msg)
 end
 
 local function getHRP()
-    local c = LocalPlayer.Character
+    local c=LocalPlayer.Character
     return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("UpperTorso"))
 end
 
 local function isMyBaseAnimal(plot)
-    local ch = Synchronizer:Get(plot)
-    local owner = ch and ch:Get("Owner")
-    return owner and owner.UserId == LocalPlayer.UserId
+    local ch=Synchronizer:Get(plot)
+    local owner=ch and ch:Get("Owner")
+    return owner and owner.UserId==LocalPlayer.UserId
 end
 
 local function getPos(an)
-    local plot = workspace:WaitForChild("Plots"):FindFirstChild(an.plot)
+    local plot=workspace:WaitForChild("Plots"):FindFirstChild(an.plot)
     if not plot then return end
-    local pod = plot.AnimalPodiums:FindFirstChild(an.slot)
+    local pod=plot.AnimalPodiums:FindFirstChild(an.slot)
     if not pod then return end
     return pod:GetPivot().Position
 end
 
 local function updateVel()
-    local hrp = getHRP() if not hrp then return end
-    local pos = hrp.Position
-    if LastPlayerPosition then PlayerVelocity = (pos-LastPlayerPosition)/task.wait() end
-    LastPlayerPosition = pos
+    local hrp=getHRP() if not hrp then return end
+    local pos=hrp.Position
+    if LastPlayerPosition then PlayerVelocity=(pos-LastPlayerPosition)/task.wait() end
+    LastPlayerPosition=pos
 end
 
 local function scan()
-    AnimalCache = {}
-    local plots = workspace:WaitForChild("Plots")
+    AnimalCache={}
+    local plots=workspace:WaitForChild("Plots")
     for _,plot in ipairs(plots:GetChildren()) do
         if not isMyBaseAnimal(plot.Name) then
-            local ch = Synchronizer:Get(plot.Name)
-            local list = ch and ch:Get("AnimalList")
+            local ch=Synchronizer:Get(plot.Name)
+            local list=ch and ch:Get("AnimalList")
             if list then
                 for slot,data in pairs(list) do
-                    local info = AnimalsData[data.Index]
+                    local info=AnimalsData[data.Index]
                     if info then
                         table.insert(AnimalCache,{
-                            name = info.DisplayName,
-                            plot = plot.Name,
-                            slot = tostring(slot),
-                            genValue = AnimalsShared:GetGeneration(data.Index,data.Mutation,data.Traits),
-                            uid = plot.Name..slot
+                            name=info.DisplayName,
+                            plot=plot.Name,
+                            slot=tostring(slot),
+                            genValue=AnimalsShared:GetGeneration(data.Index,data.Mutation,data.Traits),
+                            uid=plot.Name..slot
                         })
                     end
                 end
             end
         end
     end
-    table.sort(AnimalCache,function(a,b) return a.genValue > b.genValue end)
+    table.sort(AnimalCache,function(a,b) return a.genValue>b.genValue end)
 end
 
 local function getPriority()
@@ -111,12 +109,12 @@ local function getPriority()
 end
 
 local function getNearest()
-    local hrp = getHRP() if not hrp then return end
+    local hrp=getHRP() if not hrp then return end
     local best,dist=nil,math.huge
     for _,a in ipairs(AnimalCache) do
         local p=getPos(a)
         if p then
-            local d = (hrp.Position-p).Magnitude
+            local d=(hrp.Position-p).Magnitude
             if d<dist then best,dist=a,d end
         end
     end
@@ -192,65 +190,105 @@ getgenv().AutoSteal={
 }
 
 -----------------------------------------------------
--- 🎨 GUI (Top-left + persistent after respawn)
+-- 🎨 GUI (Final polished version)
 -----------------------------------------------------
 local gui=Instance.new("ScreenGui")
 gui.Name="AutoStealUI"
 gui.IgnoreGuiInset=true
 gui.ResetOnSpawn=false
-gui.Parent=CoreGui -- ⭐ stays after death & respawn
+gui.Parent=CoreGui
 
 local frame=Instance.new("Frame",gui)
-frame.Size=UDim2.new(0,270,0,165)
-frame.Position=UDim2.new(0,10,0,75) -- ⭐ moved below chat buttons
+frame.Size=UDim2.new(0,275,0,175)
+frame.Position=UDim2.new(0,10,0,75)
 frame.BackgroundColor3=Color3.fromRGB(25,25,25)
 frame.BorderSizePixel=0
 Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
 
+local padding=Instance.new("UIPadding",frame)
+padding.PaddingTop=UDim.new(0,10)
+padding.PaddingLeft=UDim.new(0,10)
+padding.PaddingRight=UDim.new(0,10)
+padding.PaddingBottom=UDim.new(0,10)
+
+local collapsed=false
+
+local function updateCollapse()
+    if collapsed then
+        frame.Size=UDim2.new(0,275,0,50)
+        for _,v in ipairs(frame:GetChildren()) do
+            if v:IsA("TextButton") and v.Name~="Collapse" then v.Visible=false end
+        end
+    else
+        frame.Size=UDim2.new(0,275,0,175)
+        for _,v in ipairs(frame:GetChildren()) do
+            if v:IsA("TextButton") and v.Name~="Collapse" then v.Visible=true end
+        end
+    end
+end
+
+local collapse=Instance.new("TextButton",frame)
+collapse.Name="Collapse"
+collapse.AnchorPoint=Vector2.new(1,0)
+collapse.Position=UDim2.new(1,-10,0,5)
+collapse.Size=UDim2.new(0,25,0,25)
+collapse.Font=Enum.Font.GothamBold
+collapse.TextSize=18
+collapse.Text="-"
+collapse.BackgroundColor3=Color3.fromRGB(60,60,60)
+collapse.TextColor3=Color3.fromRGB(255,255,255)
+collapse.BorderSizePixel=0
+Instance.new("UICorner",collapse).CornerRadius=UDim.new(0,6)
+
+collapse.MouseButton1Click:Connect(function()
+    collapsed=not collapsed
+    collapse.Text=collapsed and "+" or "-"
+    updateCollapse()
+end)
+
 local layout=Instance.new("UIListLayout",frame)
-layout.Padding=UDim.new(0,8)
+layout.Padding=UDim.new(0,6)
 layout.HorizontalAlignment=Enum.HorizontalAlignment.Center
-layout.VerticalAlignment=Enum.VerticalAlignment.Center
+layout.VerticalAlignment=Enum.VerticalAlignment.Top
 
-local activeButton=nil
-
-local function CreateButton(label,mode)
+local active=nil
+local function MakeButton(text,mode)
     local b=Instance.new("TextButton",frame)
-    b.Size=UDim2.new(0,240,0,40)
+    b.Size=UDim2.new(1,-20,0,40)
     b.Font=Enum.Font.GothamBold
-    b.TextSize=15
+    b.TextSize=14
+    b.Text=text.." : OFF"
     b.TextColor3=Color3.fromRGB(255,255,255)
     b.BackgroundColor3=Color3.fromRGB(60,60,60)
     b.BorderSizePixel=0
-    b.Text=label.." : OFF"
+    Instance.new("UICorner",b).CornerRadius=UDim.new(0,6)
 
     b.MouseButton1Click:Connect(function()
-        if activeButton==b then
-            activeButton=nil
-            b.Text=label.." : OFF"
+        if active==b then
+            active=nil
+            b.Text=text.." : OFF"
             b.BackgroundColor3=Color3.fromRGB(60,60,60)
             AutoSteal.Stop()
             return
         end
         for _,c in ipairs(frame:GetChildren()) do
-            if c:IsA("TextButton") and c~=b then
-                c.BackgroundColor3=Color3.fromRGB(60,60,60)
+            if c:IsA("TextButton") and c~=b and c.Name~="Collapse" then
                 c.Text=c.Text:gsub("ON","OFF")
+                c.BackgroundColor3=Color3.fromRGB(60,60,60)
             end
         end
-
-        activeButton=b
-        b.Text=label.." : ON"
+        active=b
+        b.Text=text.." : ON"
         b.BackgroundColor3=Color3.fromRGB(0,200,0)
-
         AutoSteal.Stop()
         AutoSteal.SetMode(mode)
         AutoSteal.Start()
     end)
 end
 
-CreateButton("Auto Steal if Near","NEAREST")
-CreateButton("Auto Steal Highest Value","HIGHEST")
-CreateButton("Auto Steal Highest Rarity","PRIORITY")
+MakeButton("Auto Steal if Near","NEAREST")
+MakeButton("Auto Steal Highest Value","HIGHEST")
+MakeButton("Auto Steal Highest Rarity","PRIORITY")
 
+updateCollapse()
 notify("Auto-Steal UI Loaded!")
