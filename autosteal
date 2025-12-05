@@ -1,0 +1,256 @@
+--[[ 
+════════════════════════════════════════════════════════════
+🚀 CUSTOM AUTO-STEAL SYSTEM + LEMONHUB STYLE GUI (FIXED)
+════════════════════════════════════════════════════════════
+ • No backend logic changed!
+ • GUI now in top-left, moved down from chat
+ • GUI persists after dying/resetting
+════════════════════════════════════════════════════════════
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-------------------------
+-- CONFIGURATION
+-------------------------
+local CONFIG = {
+    ENABLED = false,
+    MODE = "HIGHEST",
+    RADIUS = 25,
+    PREDICTIVE = true,
+    PREDICTION_TIME = 1.5,
+    SPEED_BOOST = true,
+    SPEED_VALUE = 25,
+}
+
+local PRIORITY_ANIMALS = {
+    "Strawberry Elephant","Meowl","Headless Horseman","Dragon Cannelloni",
+    "Capitano Moby","Cooki and Milki","La Supreme Combinasion",
+    "Burguro and Fryuro","Garama and Madundung","Lavadorito Spinito",
+    "Spooky and Pumpky",
+}
+
+-------------------------
+-- BACKEND LOGIC (UNCHANGED)
+-------------------------
+local Synchronizer = require(ReplicatedStorage.Packages.Synchronizer)
+local AnimalsData = require(ReplicatedStorage.Datas.Animals)
+local AnimalsShared = require(ReplicatedStorage.Shared.Animals)
+
+local PromptCache, CallbackCache, AnimalCache = {}, {}, {}
+local LastPlayerPosition, PlayerVelocity = nil, Vector3.zero
+
+local function notify(msg)
+    StarterGui:SetCore("SendNotification",{Title="Auto-Steal",Text=msg,Duration=3})
+end
+
+local function getHRP()
+    local c = LocalPlayer.Character
+    return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("UpperTorso"))
+end
+
+local function isMyBaseAnimal(plot)
+    local ch = Synchronizer:Get(plot)
+    local owner = ch and ch:Get("Owner")
+    return owner and owner.UserId == LocalPlayer.UserId
+end
+
+local function getPos(an)
+    local plot = workspace:WaitForChild("Plots"):FindFirstChild(an.plot)
+    if not plot then return end
+    local pod = plot.AnimalPodiums:FindFirstChild(an.slot)
+    if not pod then return end
+    return pod:GetPivot().Position
+end
+
+local function updateVel()
+    local hrp = getHRP() if not hrp then return end
+    local pos = hrp.Position
+    if LastPlayerPosition then PlayerVelocity = (pos-LastPlayerPosition)/task.wait() end
+    LastPlayerPosition = pos
+end
+
+local function scan()
+    AnimalCache = {}
+    local plots = workspace:WaitForChild("Plots")
+    for _,plot in ipairs(plots:GetChildren()) do
+        if not isMyBaseAnimal(plot.Name) then
+            local ch = Synchronizer:Get(plot.Name)
+            local list = ch and ch:Get("AnimalList")
+            if list then
+                for slot,data in pairs(list) do
+                    local info = AnimalsData[data.Index]
+                    if info then
+                        table.insert(AnimalCache,{
+                            name = info.DisplayName,
+                            plot = plot.Name,
+                            slot = tostring(slot),
+                            genValue = AnimalsShared:GetGeneration(data.Index,data.Mutation,data.Traits),
+                            uid = plot.Name..slot
+                        })
+                    end
+                end
+            end
+        end
+    end
+    table.sort(AnimalCache,function(a,b) return a.genValue > b.genValue end)
+end
+
+local function getPriority()
+    for _,p in ipairs(PRIORITY_ANIMALS) do
+        for _,a in ipairs(AnimalCache) do
+            if a.name==p then return a end
+        end
+    end
+end
+
+local function getNearest()
+    local hrp = getHRP() if not hrp then return end
+    local best,dist=nil,math.huge
+    for _,a in ipairs(AnimalCache) do
+        local p=getPos(a)
+        if p then
+            local d = (hrp.Position-p).Magnitude
+            if d<dist then best,dist=a,d end
+        end
+    end
+    return best
+end
+
+local function getTarget()
+    if CONFIG.MODE=="PRIORITY" then return getPriority() or AnimalCache[1]
+    elseif CONFIG.MODE=="NEAREST" then return getNearest()
+    end
+    return AnimalCache[1]
+end
+
+local function findPrompt(an)
+    if PromptCache[an.uid] then return PromptCache[an.uid] end
+    local plot=workspace.Plots:FindFirstChild(an.plot)
+    if not plot then return end
+    local pod=plot.AnimalPodiums:FindFirstChild(an.slot)
+    if not pod then return end
+    local attach=pod.Base.Spawn:FindFirstChild("PromptAttachment")
+    for _,p in ipairs(attach:GetChildren()) do
+        if p:IsA("ProximityPrompt") then PromptCache[an.uid]=p return p end
+    end
+end
+
+local function buildCallbacks(prompt)
+    if CallbackCache[prompt] then return CallbackCache[prompt] end
+    local d={hold={},fire={},ready=true}
+    for _,c in ipairs(getconnections(prompt.PromptButtonHoldBegan)) do table.insert(d.hold,c.Function) end
+    for _,c in ipairs(getconnections(prompt.Triggered)) do table.insert(d.fire,c.Function) end
+    CallbackCache[prompt]=d return d
+end
+
+local function steal(prompt)
+    local c=buildCallbacks(prompt)
+    if not c.ready then return end
+    c.ready=false
+    task.spawn(function()
+        for _,fn in ipairs(c.hold) do task.spawn(fn) end
+        task.wait(1.3)
+        for _,fn in ipairs(c.fire) do task.spawn(fn) end
+        task.wait(.1) c.ready=true
+    end)
+end
+
+local hb1,hb2,hb3
+
+local function start()
+    if hb1 then return end
+    CONFIG.ENABLED=true
+    notify("Auto-Steal ON ("..CONFIG.MODE..")")
+    scan()
+    hb1=RunService.Heartbeat:Connect(updateVel)
+    hb2=RunService.Heartbeat:Connect(function()
+        if not CONFIG.ENABLED then return end
+        local t=getTarget() if not t then return end
+        steal(findPrompt(t))
+    end)
+    hb3=task.spawn(function() while CONFIG.ENABLED do task.wait(5) scan() end end)
+end
+
+local function stop()
+    CONFIG.ENABLED=false
+    if hb1 then hb1:Disconnect() hb1=nil end
+    if hb2 then hb2:Disconnect() hb2=nil end
+    if hb3 then task.cancel(hb3) hb3=nil end
+    notify("Auto-Steal OFF")
+end
+
+getgenv().AutoSteal={
+    Start=start,Stop=stop,
+    SetMode=function(m) CONFIG.MODE=m notify("Mode: "..m) end
+}
+
+-----------------------------------------------------
+-- 🎨 GUI (Top-left + persistent after respawn)
+-----------------------------------------------------
+local gui=Instance.new("ScreenGui")
+gui.Name="AutoStealUI"
+gui.IgnoreGuiInset=true
+gui.ResetOnSpawn=false
+gui.Parent=CoreGui -- ⭐ stays after death & respawn
+
+local frame=Instance.new("Frame",gui)
+frame.Size=UDim2.new(0,270,0,165)
+frame.Position=UDim2.new(0,10,0,75) -- ⭐ moved below chat buttons
+frame.BackgroundColor3=Color3.fromRGB(25,25,25)
+frame.BorderSizePixel=0
+Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
+
+local layout=Instance.new("UIListLayout",frame)
+layout.Padding=UDim.new(0,8)
+layout.HorizontalAlignment=Enum.HorizontalAlignment.Center
+layout.VerticalAlignment=Enum.VerticalAlignment.Center
+
+local activeButton=nil
+
+local function CreateButton(label,mode)
+    local b=Instance.new("TextButton",frame)
+    b.Size=UDim2.new(0,240,0,40)
+    b.Font=Enum.Font.GothamBold
+    b.TextSize=15
+    b.TextColor3=Color3.fromRGB(255,255,255)
+    b.BackgroundColor3=Color3.fromRGB(60,60,60)
+    b.BorderSizePixel=0
+    b.Text=label.." : OFF"
+
+    b.MouseButton1Click:Connect(function()
+        if activeButton==b then
+            activeButton=nil
+            b.Text=label.." : OFF"
+            b.BackgroundColor3=Color3.fromRGB(60,60,60)
+            AutoSteal.Stop()
+            return
+        end
+        for _,c in ipairs(frame:GetChildren()) do
+            if c:IsA("TextButton") and c~=b then
+                c.BackgroundColor3=Color3.fromRGB(60,60,60)
+                c.Text=c.Text:gsub("ON","OFF")
+            end
+        end
+
+        activeButton=b
+        b.Text=label.." : ON"
+        b.BackgroundColor3=Color3.fromRGB(0,200,0)
+
+        AutoSteal.Stop()
+        AutoSteal.SetMode(mode)
+        AutoSteal.Start()
+    end)
+end
+
+CreateButton("Auto Steal if Near","NEAREST")
+CreateButton("Auto Steal Highest Value","HIGHEST")
+CreateButton("Auto Steal Highest Rarity","PRIORITY")
+
+notify("Auto-Steal UI Loaded!")
